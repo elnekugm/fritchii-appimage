@@ -86,7 +86,7 @@ jobs:
       - name: Build
         working-directory: src
         shell: bash
-        run: cmake --build build/release --target yuzu yuzu-cmd --parallel
+        run: cmake --build build/release --target yuzu yuzu-cmd --parallel -- -k 0
 
       - name: Package AppImage
         working-directory: src

@@ -76,13 +76,12 @@ assert anchor in s, "path_util.cpp: anchor not found"
 if "/proc/self/exe" not in s:
     implementation = (
         "fs::path GetExeDirectory() {\n"
-        "#ifdef __linux__\n"
         "    std::error_code error;\n"
+        "#ifdef __linux__\n"
         "    if (auto exe = fs::read_symlink(\"/proc/self/exe\", error); !error) {\n"
         "        return exe.parent_path();\n"
         "    }\n"
         "#endif\n"
-        "    std::error_code error;\n"
         "    return fs::current_path(error);\n"
         "}\n\n"
     )
