@@ -1,0 +1,123 @@
+name: build-fritchii-appimage
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Linux x86_64 AppImage
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out Fritchii v5.5
+        uses: actions/checkout@v5
+        with:
+          repository: Frizti/Fritchii
+          ref: fritchii-v5.5
+          path: src
+
+      - name: Install Linux dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            autoconf cmake g++ gcc git glslang-tools libglu1-mesa-dev \
+            libpulse-dev libtool libudev-dev libxkbcommon-x11-0 \
+            mesa-common-dev nasm ninja-build qt6-base-private-dev \
+            qt6-charts-dev qt6-tools-dev libavfilter-dev libavcodec-dev \
+            libswscale-dev pkg-config zlib1g-dev libva-dev libvdpau-dev \
+            spirv-tools spirv-headers libusb-1.0-0-dev \
+            libboost-dev libboost-fiber-dev libboost-context-dev \
+            libopus-dev libasound2-dev ccache \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
+            libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 \
+            libxcb-xinerama0 libxcb-xkb1
+
+      - name: Install Qt 6.8.3
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.3"
+          host: linux
+          target: desktop
+          arch: linux_gcc_64
+          modules: qtcharts
+          cache: true
+
+      - name: CMake version
+        shell: bash
+        run: cmake --version
+
+      - name: Configure
+        working-directory: src
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build/release -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=OFF \
+            -DYUZU_TESTS=OFF \
+            -DYUZU_CMD=ON \
+            -DYUZU_ROOM=OFF \
+            -DYUZU_ROOM_STANDALONE=OFF \
+            -DYUZU_USE_BUNDLED_QT=OFF \
+            -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" \
+            -DYUZU_USE_BUNDLED_SDL3=ON \
+            -DVulkanHeaders_FORCE_BUNDLED=ON \
+            -DVulkanUtilityLibraries_FORCE_BUNDLED=ON \
+            -DENABLE_UPDATE_CHECKER=ON \
+            -DLICHII_BUILD_TAG=fritchii-v5.5 \
+            -DLICHII_BUILD_PLATFORM=linux-x86_64 \
+            -DUSE_DISCORD_PRESENCE=OFF \
+            -DUSE_CCACHE=ON
+
+      - name: Build
+        working-directory: src
+        shell: bash
+        run: cmake --build build/release --target yuzu yuzu-cmd --parallel
+
+      - name: Package AppImage
+        working-directory: src
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -x build/release/bin/lichii
+          test -x build/release/bin/eden-cli
+          tools="$RUNNER_TEMP/linuxdeploy"
+          mkdir -p "$tools"
+          arch=x86_64
+          curl -fsSL -o "$tools/linuxdeploy-$arch.AppImage" \
+            https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-$arch.AppImage
+          curl -fsSL -o "$tools/linuxdeploy-plugin-qt-$arch.AppImage" \
+            https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-$arch.AppImage
+          chmod +x "$tools"/*.AppImage
+          icon="$RUNNER_TEMP/io.github.zortos293.lichii.png"
+          cp dist/lichii.png "$icon"
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          export QMAKE="$QT_ROOT_DIR/bin/qmake"
+          export EXTRA_QT_MODULES=waylandcompositor
+          export EXTRA_PLATFORM_PLUGINS='libqwayland-egl.so;libqwayland-generic.so'
+          export LDAI_VERSION="fritchii-v5.5"
+          export LDAI_OUTPUT="Fritchii-v5.5-Linux-x86_64.AppImage"
+          export OUTPUT="Fritchii-v5.5-Linux-x86_64.AppImage"
+          export ARCH="$arch"
+          "$tools/linuxdeploy-$arch.AppImage" --appdir AppDir \
+            --executable build/release/bin/lichii \
+            --executable build/release/bin/eden-cli \
+            --desktop-file dist/io.github.zortos293.lichii.desktop \
+            --icon-file "$icon" \
+            --plugin qt \
+            --output appimage
+          test -s "$OUTPUT"
+          ls -la "$OUTPUT"
+          sha256sum "$OUTPUT"
+
+      - name: Upload AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fritchii-v5.5-Linux-x86_64
+          path: src/Fritchii-v5.5-Linux-x86_64.AppImage
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
