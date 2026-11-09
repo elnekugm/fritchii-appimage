@@ -21,45 +21,7 @@ jobs:
       - name: Patch Linux build (Windows-only code paths)
         working-directory: src
         shell: bash
-        run: |
-          python3 - <<'EOF'
-          from pathlib import Path
-
-          # 1. host_memory.cpp: g_committed_bytes lives in the _WIN32-only anonymous namespace,
-          #    but the EDEN_NX2_SEC_RESERVE log line uses it unconditionally.
-          p = Path('src/common/host_memory.cpp')
-          s = p.read_text()
-          old = '''    LOG_INFO(HW_Memory, "EDEN_NX2_SEC_RESERVE: {} MiB of guest memory committed (the kernel's own)",
-             g_committed_bytes.load(std::memory_order_relaxed) >> 20);
-'''
-          new = '''#ifdef _WIN32
-''' + old + '''#endif
-'''
-          assert old in s, 'host_memory.cpp: anchor not found'
-          p.write_text(s.replace(old, new, 1))
-          print('patched host_memory.cpp')
-
-          # 2. Xlib.h defines Status as int, which breaks PipelineCacheMergeResult::Status.
-          p = Path('src/video_core/renderer_vulkan/vk_pipeline_cache.cpp')
-          s = p.read_text()
-          anchor = 'namespace Vulkan {'
-          assert anchor in s, 'vk_pipeline_cache.cpp: anchor not found'
-          if '#undef Status' not in s:
-              s = s.replace(anchor, '#undef Status  // Xlib.h defines Status as int\n\n' + anchor, 1)
-              p.write_text(s)
-              print('patched vk_pipeline_cache.cpp')
-
-          # 3. NoteDrawReuseProbeFrame is used by vk_rasterizer.cpp with only a local declaration;
-          #    GCC -Werror=missing-declarations rejects it. Add a prior declaration.
-          p = Path('src/video_core/renderer_vulkan/vk_graphics_pipeline.cpp')
-          s = p.read_text()
-          anchor = 'void NoteDrawReuseProbeFrame() {'
-          assert anchor in s, 'vk_graphics_pipeline.cpp: anchor not found'
-          if 'void NoteDrawReuseProbeFrame();' not in s:
-              s = s.replace(anchor, 'void NoteDrawReuseProbeFrame();\n\n' + anchor, 1)
-              p.write_text(s)
-              print('patched vk_graphics_pipeline.cpp')
-          EOF
+        run: python3 ../patch-linux.py
 
       - name: Install Linux dependencies
         shell: bash
