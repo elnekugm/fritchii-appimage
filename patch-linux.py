@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Minimal Linux fixes for building Fritchii v5.5 from source.
 
-Run from the Fritchii source tree. Three defects in the tag only appear on a GCC/X11
-Linux build (same fixes documented by Gusdevr/fritchii-linux-build):
+Run from the Fritchii source tree. Four defects in the tag only appear on a
+GCC/X11 Linux build (the first two are the same fixes documented by
+Gusdevr/fritchii-linux-build):
 
 1. host_memory.cpp: g_committed_bytes is declared in the _WIN32-only anonymous
    namespace, but HostMemory::CommitAllBut() logs it unconditionally.
@@ -11,6 +12,9 @@ Linux build (same fixes documented by Gusdevr/fritchii-linux-build):
 3. vk_graphics_pipeline.cpp: NoteDrawReuseProbeFrame() is used from
    vk_rasterizer.cpp with a local declaration only; GCC -Werror=missing-declarations
    rejects the definition.
+4. path_util.h/.cpp: GetExeDirectory() is declared and defined only under
+   _WIN32, yet video_core/nx2_precompile.cpp calls it from every platform.
+   Provide a POSIX implementation (Linux: /proc/self/exe).
 """
 from pathlib import Path
 
@@ -45,5 +49,45 @@ if "void NoteDrawReuseProbeFrame();" not in s:
     s = s.replace(anchor, "void NoteDrawReuseProbeFrame();\n\n" + anchor, 1)
     p.write_text(s)
     print("patched vk_graphics_pipeline.cpp")
+
+# 4a. path_util.h: declare GetExeDirectory() on non-Windows too.
+p = Path("src/common/fs/path_util.h")
+s = p.read_text()
+anchor = "/**\n * Gets the path of the directory specified by the #HOME environment variable."
+assert anchor in s, "path_util.h: anchor not found"
+if s.count("[[nodiscard]] std::filesystem::path GetExeDirectory();") != 2:
+    declaration = (
+        "/**\n"
+        " * Gets the path of the directory containing the executable of the current process.\n"
+        " *\n"
+        " * @returns The path of the directory containing the executable of the current process.\n"
+        " */\n"
+        "[[nodiscard]] std::filesystem::path GetExeDirectory();\n\n"
+    )
+    s = s.replace(anchor, declaration + anchor, 1)
+    p.write_text(s)
+    print("patched path_util.h")
+
+# 4b. path_util.cpp: implement it in the non-Windows branch.
+p = Path("src/common/fs/path_util.cpp")
+s = p.read_text()
+anchor = "fs::path GetHomeDirectory() {"
+assert anchor in s, "path_util.cpp: anchor not found"
+if "/proc/self/exe" not in s:
+    implementation = (
+        "fs::path GetExeDirectory() {\n"
+        "#ifdef __linux__\n"
+        "    std::error_code error;\n"
+        "    if (auto exe = fs::read_symlink(\"/proc/self/exe\", error); !error) {\n"
+        "        return exe.parent_path();\n"
+        "    }\n"
+        "#endif\n"
+        "    std::error_code error;\n"
+        "    return fs::current_path(error);\n"
+        "}\n\n"
+    )
+    s = s.replace(anchor, implementation + anchor, 1)
+    p.write_text(s)
+    print("patched path_util.cpp")
 
 print("all patches applied")
